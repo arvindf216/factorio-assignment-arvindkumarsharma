@@ -40,11 +40,44 @@ The `scipy.optimize.linprog` function is used to solve this LP problem. If the i
 
 ## Belts Modeling Choices
 
-The belts problem is modeled as a maximum flow problem on a directed graph. The goal is to find a valid flow from the sources to the sink that respects the capacity constraints of the edges and nodes.
+The problem of finding a feasible flow in a network with lower bounds and node capacities is transformed into a standard maximum flow problem through a series of steps. The **Edmonds-Karp algorithm** is then used to solve the transformed problem.
 
-The problem is transformed to handle lower bounds on edges and node capacities. The transformation involves creating a new graph with a super-source and a super-sink to check for feasibility. After the feasibility check, the main max-flow algorithm is run to find the optimal flow.
+### Mathematical Formulation
 
-The Edmonds-Karp algorithm is used to find the maximum flow. The algorithm is implemented from scratch using a breadth-first search to find augmenting paths in the residual graph.
+A flow network is a directed graph `G = (V, E)` with sources `S`, a sink `T`, and the following properties:
+- For each edge `(u,v) in E`, a lower bound `l(u,v) >= 0` and an upper capacity `c(u,v)`.
+- For some nodes `v in V`, a throughput capacity `cap(v)`.
+
+The goal is to find a flow `f(u,v)` for each edge that satisfies:
+1.  **Capacity Constraints**: `l(u,v) <= f(u,v) <= c(u,v)`
+2.  **Flow Conservation**: For any node `v` that is not a source or sink, the total flow entering the node must equal the total flow leaving it.
+3.  **Node Capacity**: For any node `v` with a capacity, the total flow passing through it must not exceed `cap(v)`.
+
+### Modeling Steps
+
+The problem is solved using the following transformations:
+
+**Step 1: Eliminate Node Capacities**
+Throughput capacity on a node `v` is converted into an edge capacity. The node `v` is split into two nodes, `v_in` and `v_out`, connected by a new edge `(v_in, v_out)` with capacity `cap(v)`. All original edges entering `v` now enter `v_in`, and all original edges leaving `v` now leave from `v_out`. This enforces the node capacity as a standard edge capacity.
+
+**Step 2: Eliminate Lower Bounds**
+This is the main transformation. For a flow `f` to be feasible, we define a new flow `f'(u,v) = f(u,v) - l(u,v)`. The new constraints on `f'` are `0 <= f'(u,v) <= c(u,v) - l(u,v)`, which is the standard form for a max-flow problem.
+
+However, this change breaks flow conservation. The new conservation equation has an **imbalance** `B(v)` at each node `v`:
+`sum(f'(u,v) for u) - sum(f'(v,w) for w) = sum(l(v,w) for w) - sum(l(u,v) for u) = -B(v)`
+where `B(v) = sum(l(u,v) for u) - sum(l(v,w) for w)`.
+- If `B(v) > 0`, node `v` has a net **demand** of `B(v)`.
+- If `B(v) < 0`, node `v` has a net **supply** of `-B(v)`.
+
+**Step 3: Check Feasibility (The Circulation Problem)**
+To satisfy the imbalances, we must check if a valid "circulation" `f'` exists. We do this by creating a new network with a global super-source `s*` and super-sink `t*`:
+- For each node `v` with a demand `B(v) > 0`, add an edge `(s*, v)` with capacity `B(v)`.
+- For each node `v` with a supply `B(v) < 0`, add an edge `(v, t*)` with capacity `-B(v)`.
+
+A feasible flow exists in the original network **if and only if** the maximum flow from `s*` to `t*` in this new network is equal to the total demand from all nodes. If the max flow is less than the total demand, it's impossible to satisfy the lower bounds, and the problem is infeasible.
+
+**Step 4: The Role of Edmonds-Karp**
+The Edmonds-Karp algorithm is the specific max-flow algorithm used to solve the circulation problem in Step 3 and to find the final flow distribution. It works by repeatedly finding an "augmenting path" from a source to a sink in the residual graph. It uses a **Breadth-First Search (BFS)** to find the shortest augmenting path in terms of the number of edges. This process is repeated until no more augmenting paths can be found.
 
 ## Note on the Sample Output in the PDF (Part A)
 
