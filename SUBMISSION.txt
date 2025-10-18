@@ -1,0 +1,9 @@
+Name: Arvind Kumar Sharma
+Email: mt1221268@iitd.ac.in
+OS: Ubuntu on WSL2
+CPU: 13th Gen Intel(R) Core(TM) i5-13500H (2.60 GHz)
+RAM: 16.0 GB
+Language & version: Python 3.10.12
+Optional notes:
+- The factory solution uses the scipy library (scipy.optimize.linprog) to solve the linear programming problem.
+- The belts solution uses a custom implementation of the Edmonds-Karp algorithm to find the maximum flow.
