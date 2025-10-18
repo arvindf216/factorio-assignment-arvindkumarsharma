@@ -1,0 +1,36 @@
+{
+  "status": "ok",
+  "max_flow_per_min": 1500,
+  "flows": [
+    {
+      "from": "s1",
+      "to": "a",
+      "flow": 1000
+    },
+    {
+      "from": "s2",
+      "to": "a",
+      "flow": 500
+    },
+    {
+      "from": "a",
+      "to": "b",
+      "flow": 900
+    },
+    {
+      "from": "a",
+      "to": "c",
+      "flow": 600
+    },
+    {
+      "from": "b",
+      "to": "sink",
+      "flow": 900
+    },
+    {
+      "from": "c",
+      "to": "sink",
+      "flow": 600
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "status": "ok",
+  "per_recipe_crafts_per_min": {
+    "iron_plate": 1363.6363636363635,
+    "copper_plate": 4090.909090909091,
+    "green_circuit": 1636.3636363636363
+  },
+  "per_machine_counts": {
+    "assembler_1": 0.3952569169960474,
+    "chemical": 4.40771349862259
+  },
+  "raw_consumption_per_min": {
+    "copper_ore": 4090.909090909091,
+    "iron_ore": 1363.6363636363635
+  }
+}

@@ -1,0 +1,12 @@
+{
+    "edges": [
+        {"from": "s1", "to": "a", "hi": 1000},
+        {"from": "s2", "to": "a", "hi": 1000},
+        {"from": "a", "to": "b", "hi": 1000},
+        {"from": "a", "to": "c", "hi": 1000},
+        {"from": "b", "to": "sink", "hi": 900},
+        {"from": "c", "to": "sink", "hi": 600}
+    ],
+    "sources": {"s1": 900, "s2": 600},
+    "sink": "sink"
+}

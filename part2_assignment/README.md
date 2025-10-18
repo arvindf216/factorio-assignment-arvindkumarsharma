@@ -5,14 +5,38 @@ This project contains the implementation for the Factory Steady State and Bounde
 
 ## Factory Modeling Choices
 
-The factory problem is modeled as a linear programming problem. The objective is to minimize the total number of machines used, which is a linear function of the recipe production rates. The constraints are as follows:
+The factory problem is modeled as a standard **Linear Programming (LP)** problem. The goal is to find an optimal vector of recipe craft rates that minimizes machine usage while satisfying all production and resource constraints.
 
-*   **Item Conservation:** The production and consumption of each intermediate item must be balanced. This is enforced using equality constraints.
-*   **Target Production:** The production of the target item must meet the specified rate. This is also an equality constraint.
-*   **Raw Material Supply:** The consumption of raw materials must not exceed the available supply. This is enforced using inequality constraints.
-*   **Machine Capacity:** The number of machines of each type used must not exceed the available capacity. This is also an inequality constraint.
+The problem is formulated in the following structure, which is then solved using `scipy.optimize.linprog`:
 
-The `scipy.optimize.linprog` function is used to solve the linear program. If the problem is infeasible, a binary search is performed to find the maximum feasible target rate.
+**minimize**
+`c @ x`
+
+**such that**
+`A_ub @ x <= b_ub`
+`A_eq @ x == b_eq`
+`0 <= x`
+
+---
+
+Here is what each component represents:
+
+*   **`x` (Decision Variables)**: This is a vector where each element `x_r` represents the **crafts per minute** for a given recipe `r`. This is what the solver is trying to find.
+
+*   **`c` (Objective Function Coefficients)**: This vector represents the "cost" of each craft. To minimize the total number of machines, each element `c_r` is the number of machines required for one craft per minute of recipe `r`. It is calculated as `1 / eff_crafts_per_min(r)`. Therefore, `c @ x` equals the **total number of machines used**.
+
+*   **`A_eq @ x == b_eq` (Equality Constraints)**: These equations enforce **perfect balance**.
+    *   For **intermediate items**, they ensure that the net flow (production minus consumption) is exactly zero.
+    *   For the **target item**, they ensure the net flow is equal to the required `target_rate`.
+
+*   **`A_ub @ x <= b_ub` (Inequality Constraints)**: These inequalities enforce **resource limits**.
+    *   For **raw materials**, they ensure that total consumption does not exceed the `raw_supply_per_min`.
+    *   For **machines**, they ensure that the total number of machines of each type used does not exceed the `max_machines` limit.
+
+*   **`0 <= x` (Bounds)**: This ensures that the craft rates (`x_r`) can only be non-negative, as it's impossible to run a recipe a negative number of times. The upper bound is infinity.
+
+---
+The `scipy.optimize.linprog` function is used to solve this LP problem. If the initial problem is infeasible, a binary search is performed on the target rate to find the maximum feasible rate.
 
 ## Belts Modeling Choices
 
