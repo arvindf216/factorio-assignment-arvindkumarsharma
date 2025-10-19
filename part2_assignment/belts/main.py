@@ -30,24 +30,25 @@ def bfs(graph, s, t, parent):
 def edmonds_karp(graph, source, sink):
     parent = {}
     max_flow = 0
-    while bfs(graph, source, sink, parent):
+    residual_graph = {u: dict(v) for u, v in graph.items()}
+    while bfs(residual_graph, source, sink, parent):
         path_flow = float('Inf')
         s = sink
         while s != source:
-            path_flow = min(path_flow, graph[parent[s]][s])
+            path_flow = min(path_flow, residual_graph[parent[s]][s])
             s = parent[s]
         v = sink
         while v != source:
             u = parent[v]
-            graph[u][v] -= path_flow
-            if v not in graph:
-                graph[v] = {}
-            if u not in graph[v]:
-                graph[v][u] = 0
-            graph[v][u] += path_flow
+            residual_graph[u][v] -= path_flow
+            if v not in residual_graph:
+                residual_graph[v] = {}
+            if u not in residual_graph[v]:
+                residual_graph[v][u] = 0
+            residual_graph[v][u] += path_flow
             v = parent[v]
         max_flow += path_flow
-    return max_flow, graph
+    return max_flow, residual_graph
 
 def process_belts(data):
     edges = data.get('edges', [])
@@ -61,11 +62,6 @@ def process_belts(data):
         nodes.add(edge['to'])
     
     graph = {node: {} for node in nodes}
-    super_source = "super_source"
-    super_sink = "super_sink"
-    graph[super_source] = {}
-    graph[super_sink] = {}
-
     balance = {node: 0 for node in nodes}
 
     for edge in edges:
@@ -93,13 +89,69 @@ def process_belts(data):
         elif b < 0:
             demand_graph[node][t_star] = -b
 
-    flow, _ = edmonds_karp(demand_graph, s_star, t_star)
+    flow, residual_graph = edmonds_karp(demand_graph, s_star, t_star)
 
     if abs(flow - total_demand) > 1e-9:
-        return {"status": "infeasible"}
+        q = deque([s_star])
+        reachable_nodes = {s_star}
+        while q:
+            u = q.popleft()
+            for v, capacity in residual_graph.get(u, {}).items():
+                if capacity > 0 and v not in reachable_nodes:
+                    reachable_nodes.add(v)
+                    q.append(v)
+
+        cut_reachable = sorted(list(set(n.replace('_in', '').replace('_out', '') for n in reachable_nodes if n not in [s_star, t_star])))
+        demand_balance = total_demand - flow
+
+        tight_edges = []
+        for edge in edges:
+            u, v = edge['from'], edge['to']
+            u_rep = f"{u}_out" if f"{u}_out" in nodes else u
+            v_rep = f"{v}_in" if f"{v}_in" in nodes else v
+            if u_rep in reachable_nodes and v_rep not in reachable_nodes:
+                tight_edges.append({"from": u, "to": v, "flow_needed": demand_balance})
+
+        tight_nodes = []
+        for node in cut_reachable:
+            is_tight = True
+            if node in sources or node == sink_node:
+                continue
+            
+            # Check if all outgoing edges to unreachable nodes are saturated
+            for edge in edges:
+                if edge['from'] == node:
+                    u_rep = f"{node}_out" if f"{node}_out" in nodes else node
+                    v_rep = f"{edge['to']}_in" if f"{edge['to']}_in" in nodes else edge['to']
+                    if u_rep in reachable_nodes and v_rep not in reachable_nodes:
+                        if residual_graph.get(u_rep, {}).get(v_rep, 0) > 0:
+                            is_tight = False
+                            break
+            if is_tight:
+                tight_nodes.append(node)
+
+        # Add nodes with explicit capacity limits that are tight
+        for node in node_caps:
+            if f'{node}_in' in reachable_nodes and f'{node}_out' not in reachable_nodes:
+                if node not in tight_nodes:
+                    tight_nodes.append(node)
+
+        return {
+            "status": "infeasible",
+            "cut_reachable": cut_reachable,
+            "deficit": {
+                "demand_balance": demand_balance,
+                "tight_nodes": sorted(tight_nodes),
+                "tight_edges": tight_edges
+            }
+        }
 
     # Main flow
     main_graph = {node: dict(adj) for node, adj in graph.items()}
+    super_source = "super_source"
+    super_sink = "super_sink"
+    main_graph[super_source] = {}
+    main_graph[super_sink] = {}
     for source in sources:
         main_graph[super_source][source] = float('inf')
     main_graph[sink_node][super_sink] = float('inf')

@@ -1,4 +1,3 @@
-
 # Part 2 Assignment
 
 This project contains the implementation for the Factory Steady State and Bounded Belts assignment.
@@ -6,6 +5,8 @@ This project contains the implementation for the Factory Steady State and Bounde
 ## Factory Modeling Choices
 
 The factory problem is modeled as a standard **Linear Programming (LP)** problem. The goal is to find an optimal vector of recipe craft rates that minimizes machine usage while satisfying all production and resource constraints.
+
+### LP Formulation
 
 The problem is formulated in the following structure, which is then solved using `scipy.optimize.linprog`:
 
@@ -17,67 +18,56 @@ The problem is formulated in the following structure, which is then solved using
 `A_eq @ x == b_eq`
 `0 <= x`
 
----
+*   **`x` (Decision Variables)**: A vector where each element `x_r` represents the **crafts per minute** for a given recipe `r`.
+*   **`c` (Objective Function)**: To minimize total machines, each coefficient `c_r` is the number of machines for one craft/min of recipe `r`, calculated as `1 / eff_crafts_per_min(r)`.
+*   **`A_eq @ x == b_eq` (Equality Constraints)**: These enforce **item balances**. For intermediate items, net flow (production - consumption) is zero. For the target item, net flow equals the required `target_rate`.
+*   **`A_ub @ x <= b_ub` (Inequality Constraints)**: These enforce **resource limits**, ensuring raw material consumption and machine usage do not exceed their respective caps.
 
-Here is what each component represents:
+### Specific Modeling Points
 
-*   **`x` (Decision Variables)**: This is a vector where each element `x_r` represents the **crafts per minute** for a given recipe `r`. This is what the solver is trying to find.
+*   **Module Application**: `speed` and `productivity` modules are handled by directly modifying the coefficients in the LP matrices. `speed` modules alter the effective crafts per minute, affecting both the objective function (`c`) and machine usage constraints. `productivity` modules increase item output, so they only modify the production side of the item balance equations (`A_eq`).
 
-*   **`c` (Objective Function Coefficients)**: This vector represents the "cost" of each craft. To minimize the total number of machines, each element `c_r` is the number of machines required for one craft per minute of recipe `r`. It is calculated as `1 / eff_crafts_per_min(r)`. Therefore, `c @ x` equals the **total number of machines used**.
+*   **Cycles, Byproducts, and Self-Contained Recipes**: The LP formulation inherently handles these cases. By defining conservation of flow constraints for *all* intermediate items (setting their net production to zero), the model correctly balances complex recipe chains, including those with cycles (A -> B -> A) or byproducts. The solver finds the necessary rates to maintain a perfect steady state.
 
-*   **`A_eq @ x == b_eq` (Equality Constraints)**: These equations enforce **perfect balance**.
-    *   For **intermediate items**, they ensure that the net flow (production minus consumption) is exactly zero.
-    *   For the **target item**, they ensure the net flow is equal to the required `target_rate`.
-
-*   **`A_ub @ x <= b_ub` (Inequality Constraints)**: These inequalities enforce **resource limits**.
-    *   For **raw materials**, they ensure that total consumption does not exceed the `raw_supply_per_min`.
-    *   For **machines**, they ensure that the total number of machines of each type used does not exceed the `max_machines` limit.
-
-*   **`0 <= x` (Bounds)**: This ensures that the craft rates (`x_r`) can only be non-negative, as it's impossible to run a recipe a negative number of times. The upper bound is infinity.
-
----
-The `scipy.optimize.linprog` function is used to solve this LP problem. If the initial problem is infeasible, a binary search is performed on the target rate to find the maximum feasible rate.
+*   **Infeasibility Detection**: If the primary LP problem is infeasible for the requested `target_rate`, a binary search is performed. It iteratively lowers the target rate and re-solves the LP to find the maximum possible feasible production rate.
 
 ## Belts Modeling Choices
 
-The problem of finding a feasible flow in a network with lower bounds and node capacities is transformed into a standard maximum flow problem through a series of steps. The **Edmonds-Karp algorithm** is then used to solve the transformed problem.
-
-### Mathematical Formulation
-
-A flow network is a directed graph `G = (V, E)` with sources `S`, a sink `T`, and the following properties:
-- For each edge `(u,v) in E`, a lower bound `l(u,v) >= 0` and an upper capacity `c(u,v)`.
-- For some nodes `v in V`, a throughput capacity `cap(v)`.
-
-The goal is to find a flow `f(u,v)` for each edge that satisfies:
-1.  **Capacity Constraints**: `l(u,v) <= f(u,v) <= c(u,v)`
-2.  **Flow Conservation**: For any node `v` that is not a source or sink, the total flow entering the node must equal the total flow leaving it.
-3.  **Node Capacity**: For any node `v` with a capacity, the total flow passing through it must not exceed `cap(v)`.
+The problem of finding a feasible flow in a network with lower bounds and node capacities is transformed into a standard maximum flow problem, which is then solved using a hand-rolled **Edmonds-Karp algorithm**.
 
 ### Modeling Steps
 
-The problem is solved using the following transformations:
+1.  **Node-Splitting for Capacity Constraints**: Throughput capacity on a node `v` is converted into an edge capacity by splitting the node into `v_in` and `v_out`, connected by a new edge with capacity `cap(v)`.
 
-**Step 1: Eliminate Node Capacities**
-Throughput capacity on a node `v` is converted into an edge capacity. The node `v` is split into two nodes, `v_in` and `v_out`, connected by a new edge `(v_in, v_out)` with capacity `cap(v)`. All original edges entering `v` now enter `v_in`, and all original edges leaving `v` now leave from `v_out`. This enforces the node capacity as a standard edge capacity.
+2.  **Transformation for Lower Bounds**: To handle flow lower bounds, a new flow variable `f' = f - l` is used. This transforms the edge constraints to the standard `0 <= f' <= c - l`, but it creates an imbalance `B(v)` at each node.
 
-**Step 2: Eliminate Lower Bounds**
-This is the main transformation. For a flow `f` to be feasible, we define a new flow `f'(u,v) = f(u,v) - l(u,v)`. The new constraints on `f'` are `0 <= f'(u,v) <= c(u,v) - l(u,v)`, which is the standard form for a max-flow problem.
+3.  **Feasibility Check Strategy**: To resolve the imbalances, a circulation network is created with a super-source `s*` and a super-sink `t*`. Nodes with a net demand are connected from `s*`, and nodes with a net supply are connected to `t*`. A feasible flow exists if and only if the max flow in this circulation network equals the total demand.
 
-However, this change breaks flow conservation. The new conservation equation has an **imbalance** `B(v)` at each node `v`:
-`sum(f'(u,v) for u) - sum(f'(v,w) for w) = sum(l(v,w) for w) - sum(l(u,v) for u) = -B(v)`
-where `B(v) = sum(l(u,v) for u) - sum(l(v,w) for w)`.
-- If `B(v) > 0`, node `v` has a net **demand** of `B(v)`.
-- If `B(v) < 0`, node `v` has a net **supply** of `-B(v)`.
+### Infeasibility Reporting (Min-Cut)
 
-**Step 3: Check Feasibility (The Circulation Problem)**
-To satisfy the imbalances, we must check if a valid "circulation" `f'` exists. We do this by creating a new network with a global super-source `s*` and super-sink `t*`:
-- For each node `v` with a demand `B(v) > 0`, add an edge `(s*, v)` with capacity `B(v)`.
-- For each node `v` with a supply `B(v) < 0`, add an edge `(v, t*)` with capacity `-B(v)`.
+When a belts problem is infeasible, a min-cut analysis is performed to identify the bottleneck.
 
-A feasible flow exists in the original network **if and only if** the maximum flow from `s*` to `t*` in this new network is equal to the total demand from all nodes. If the max flow is less than the total demand, it's impossible to satisfy the lower bounds, and the problem is infeasible.
+*   **`cut_reachable`**: After the feasibility check fails, a Breadth-First Search (BFS) is performed on the residual graph starting from the super-source (`s*`) to find all nodes on the source side of the cut.
 
-**Step 4: The Role of Edmonds-Karp**
-The Edmonds-Karp algorithm is the specific max-flow algorithm used to solve the circulation problem in Step 3 and to find the final flow distribution. It works by repeatedly finding an "augmenting path" from a source to a sink in the residual graph. It uses a **Breadth-First Search (BFS)** to find the shortest augmenting path in terms of the number of edges. This process is repeated until no more augmenting paths can be found.
+*   **`tight_edges`**: These are edges crossing the cut from a reachable to an unreachable node that are fully saturated (zero residual capacity).
+
+*   **`tight_nodes`**: A node is "tight" if it is a point of constriction. This includes nodes with an explicit `node_caps` limit that is saturated, and nodes on the cut boundary whose outgoing edges across the cut are all saturated.
+
+## Numeric Approach and Determinism
+
+*   **Solver Choice**: `scipy.optimize.linprog` is used for the factory problem as it is a robust, well-tested solver for LP problems. For the belts problem, a from-scratch implementation of Edmonds-Karp is used to provide precise control over the max-flow/min-cut logic and reporting.
+
+*   **Tolerances**: A standard tolerance of `1e-9` is used for floating-point comparisons in both problems to manage potential precision issues.
+
+*   **Tie-Breaking and Determinism**: Deterministic output is guaranteed. For the factory problem, while the LP solver has its own internal tie-breaking, determinism is ensured by consistently ordering recipes and items (lexicographically) before constructing the constraint matrices. For the belts problem, the Edmonds-Karp implementation is deterministic by nature (due to the BFS path selection).
+
+## Failure Modes & Edge Cases
+
+*   **Infeasible Constraints**: Infeasible raw material supplies or machine counts in the factory problem are detected by the LP solver, triggering the binary search for the maximum feasible rate. In the belts problem, they are caught by the feasibility check.
+
+*   **Degenerate or Redundant Recipes**: The LP formulation is robust to these cases. A redundant recipe (e.g., two identical ways to make an item) simply presents the solver with an additional valid path, and it will choose the one that best minimizes the objective (i.e., uses fewer machines). 
+
+*   **Disconnected Graph Components (Belts)**: The graph construction and max-flow algorithm naturally handle disconnected components. If a source is in a component disconnected from the sink, its flow will simply not be routed, and the feasibility check will correctly identify the deficit.
 
 ## Note on the Sample Output in the PDF (Part A)
 
@@ -85,11 +75,8 @@ The assignment PDF provides a sample input and output on page 5. The provided sa
 
 1.  **Raw Material Violation**: The plan requires **5400** `copper_ore` per minute, but the supply is limited to **5000**.
 
-2.  **Intermediate Item Imbalance**: The factory would not be in a steady state. For example, consider iron plates:
-    *   **Consumption**: The `green_circuit` recipe runs 1800 times/min, consuming `1800` iron plates.
-    *   **Production**: The `iron_plate` recipe also runs 1800 times/min, but on a machine with a `+20%` productivity bonus, producing `1800 * 1.2 = 2160` iron plates.
-    *   This creates a surplus of **360** iron plates per minute, violating the perfect balance rule.
+2.  **Intermediate Item Imbalance**: The factory would not be in a steady state. For example, the plan produces a surplus of **360** iron plates per minute.
 
-3.  **Incorrect Target Production**: The plan would produce **1980** green circuits per minute (`1800 crafts * 1.1 items/craft`), exceeding the required target of 1800.
+3.  **Incorrect Target Production**: The plan would produce **1980** green circuits per minute, exceeding the required target of 1800.
 
 The correct, feasible solution provided by this tool accounts for all module effects to satisfy all constraints exactly.
